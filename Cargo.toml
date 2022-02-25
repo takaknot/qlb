@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.10", features = ["full"] }
-
+socket2 = { version="0.4", features = ["all"]}
