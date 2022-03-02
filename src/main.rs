@@ -1,50 +1,55 @@
 
-//use std::net::SocketAddr;
-//use tokio::net::UDPSocket;
-//use socket2::{Socket, Protocol, Domain, Type, SockAddr};
+use std::io;
+use std::error::Error;
+use std::net::SocketAddr;
 use socket2::{Socket, Protocol, Domain, Type};
 
-async fn serve(_: usize) {
+use std::mem::MaybeUninit;
 
-    let addr: std::net::SocketAddr = "0.0.0.0:4433".parse().unwrap();
-    //let socket = Socket::new(domain, Type::dgram(), Some(Protocol::udp()))?;
 
-    let socket = Socket::new(
-        Domain::IPV4,
+async fn serve(i: usize) -> Result<(), io::Error> {
+
+    let addr: SocketAddr = "0.0.0.0:4433".parse().unwrap();
+
+    let sock = Socket::new(
+        Domain::for_address(addr),
         Type::DGRAM,
         Some(Protocol::UDP),
     ).unwrap();
-    /*
-    let sock = socket2::Socket::new(
-        match addr {
-            SocketAddr::V4(_) => socket2::Domain::IPV4,
-            SocketAddr::V6(_) => socket2::Domain::IPV6,
-        },
-        socket2::Type::STREAM,
-        None,
-    )
-    .unwrap();
-    */
 
+    sock.set_nonblocking(true).unwrap();
     sock.set_reuse_address(true).unwrap();
     sock.set_reuse_port(true).unwrap();
-    sock.set_nonblocking(true).unwrap();
+    //sock.listen(4).unwrap();
+    
     sock.bind(&addr.into()).unwrap();
-    sock.listen(8192).unwrap();
 
+    let send_buf: Vec<u8> = vec![128; 1024];
 
-    //sock.bind(&"127.0.0.1:4433".parse::<SocketAddr>().unwrap().into()).unwrap();
-    //let _listener = sock.into_udp_socket();
+    let mut recv_buf: [MaybeUninit<u8>; 1024] = unsafe {
+        MaybeUninit::uninit().assume_init()
+    };
+
+    loop {
+        match sock.recv_from(&mut recv_buf) {
+            Ok((size, peer)) => {
+                println!("echo - proc: {} size: {}", i, size);
+
+                let _amt = sock.send_to(&send_buf[..size], &peer);
+            },
+            Err(_e) => {},
+        }
+    }
 }
 
-
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut handlers = Vec::new();
 
-    for i in 0..10 {
+    for i in 0..2 {
         let h = std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
+            let _r = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap()
@@ -57,4 +62,6 @@ fn main() {
     for h in handlers {
         h.join().unwrap();
     }
+
+    Ok(())
 }
