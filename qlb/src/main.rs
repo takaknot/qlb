@@ -6,7 +6,7 @@ use socket2::{Socket, Protocol, Domain, Type};
 
 use std::mem::MaybeUninit;
 
-pub const MAX_LEN: usize = 1024;
+pub const MAX_LEN: usize = 1300;
 
 fn parse_packet(buf: [MaybeUninit<u8>; MAX_LEN]) {
 
@@ -17,10 +17,17 @@ fn parse_packet(buf: [MaybeUninit<u8>; MAX_LEN]) {
     if pkt.len() < 21 {
         return;
     }
-    for i in 0..4 {
-        println!("{:?}", pkt[i]);
+    let long_hdr = (pkt[0] & 0b10000000) >> 7;
+    if long_hdr == 1 {
+        println!("long_hdr? {:#010b}", pkt[0]);
     }
 
+    let dcid_len: usize = pkt[5].into();
+    println!("DCID_Length: {}", dcid_len);
+
+    for i in 6..6+dcid_len {
+        println!("DCID: {} {:#010b}", i-6, pkt[i]);
+    }
     //let mut _x = Pin::new(&buf[i]).get_ref();
     //let _y = buf.first_mut().unwrap();
     //let _x = unsafe { &*buf.as_ptr() };
