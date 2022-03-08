@@ -3,8 +3,10 @@
 use std::error::Error;
 use std::net::SocketAddr;
 use socket2::{Socket, Protocol, Domain, Type};
+use std::net::UdpSocket;
 
 use std::mem::MaybeUninit;
+use std::time::Duration;
 
 pub const MAX_LEN: usize = 1300;
 
@@ -34,6 +36,43 @@ fn parse_packet(buf: [MaybeUninit<u8>; MAX_LEN]) {
     //let _y: u8 = _x.first_ptr();
 }
 
+fn forward(buf: [MaybeUninit<u8>; MAX_LEN]) -> Vec<u8> {
+
+    let pkt: [u8; MAX_LEN] = unsafe {
+        std::mem::transmute::<_, [u8; MAX_LEN]>(buf)
+    };
+
+    let remote: SocketAddr = "127.0.0.1:4444".parse()
+        .expect("failed to parse addr");
+
+    let client = UdpSocket::bind("127.0.0.1:0")
+        .expect("failed to bind socket");
+
+    client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    client.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+
+    client.send_to(&pkt, &remote)
+        .expect("failed to send data");
+
+    let mut recv_buf = [0u8; MAX_LEN];
+
+    loop {
+        match client.recv_from(&mut recv_buf) {
+            Ok((size, peer)) => {
+                println!("received from backend: {}, {}", size, peer);
+                //break;
+                //let resp: Vec<u8> = recv_buf[..size].into()
+                let resp: Vec<u8> = recv_buf[..size].to_vec();
+                return resp;
+            },
+            Err(_e) => {
+                println!("timeout");
+                //break;
+            },
+        }
+    }
+}
+
 async fn serve(i: usize) -> Result<(), std::io::Error> {
 
     let addr: SocketAddr = "0.0.0.0:4433".parse().unwrap();
@@ -51,8 +90,6 @@ async fn serve(i: usize) -> Result<(), std::io::Error> {
     
     sock.bind(&addr.into()).unwrap();
 
-    let send_buf: Vec<u8> = vec![97; MAX_LEN];
-
     /*
     let mut recv_buf: [MaybeUninit<u8>; 1024] = unsafe {
         //MaybeUninit::uninit().assume_init()
@@ -67,8 +104,9 @@ async fn serve(i: usize) -> Result<(), std::io::Error> {
                 println!("echo - proc: {} size: {}", i, size);
 
                 parse_packet(recv_buf);
+                let resp = forward(recv_buf);
 
-                let _amt = sock.send_to(&send_buf[..size], &peer);
+                let _amt = sock.send_to(&resp, &peer);
             },
             Err(_e) => {},
         }
