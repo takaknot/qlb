@@ -1,9 +1,20 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::collections::HashMap;
-use pnet::datalink::{linux, NetworkInterface};
-use std::thread;
 use std::str::FromStr;
+
+use pnet::datalink::{linux, NetworkInterface};
+use pnet::datalink::Channel::Ethernet;
+use pnet::datalink::{FanoutOption, FanoutType};
+
+use pnet::packet::Packet;
+use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
+use pnet::packet::ip::IpNextHeaderProtocols;
+use pnet::packet::ipv4::MutableIpv4Packet;
+use pnet::packet::udp::MutableUdpPacket;
+
+use pnet::transport::transport_channel;
+use pnet::transport::TransportChannelType::Layer3;
 
 #[derive(Clone)]
 pub struct LB {
@@ -76,15 +87,22 @@ impl Server {
 
         for lb in xbs.iter() {
 
+            println!("listen-ip: {}", lb.listen_ip);
+
             let mut srv_thread = lb.clone();
-            let _t = thread::spawn(move || {
+
+            let t = std::thread::spawn(move || {
                 run_server(&mut srv_thread);
             });
+
+            t.join().unwrap();
         }
     }
 }
 
-pub fn run_server(lb: &mut LB) {
+fn run_server(lb: &mut LB) {
+
+    println!("called run_server");
 
     let interface = match find_interface(lb.listen_ip) {
         Some(interface) => {
@@ -95,12 +113,76 @@ pub fn run_server(lb: &mut LB) {
         }
     };
 
-    let _iface = interface.clone();
+    let iface = interface.clone();
 
     //process_packets(iface);
+    
+    let iface_cfg = setup_interface_cfg();
+   
+    let (_, mut iface_rx) = match linux::channel(&iface, iface_cfg) {
+        Ok(Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => panic!("Unhandled channel type"),
+        Err(e) => panic!(
+            "An error occurred when creating the datalink channel: {}",
+            e
+        ),
+    };
+
+    let proto = Layer3(IpNextHeaderProtocols::Udp);
+    let (mut _ipv4_tx, _) = transport_channel(4096, proto).unwrap();
+
+    loop {
+        match iface_rx.next() {
+            Ok(frame) => {
+                let ethernet = EthernetPacket::new(frame).unwrap();
+                match ethernet.get_ethertype() {
+                    EtherTypes::Ipv4 => {
+                        match MutableIpv4Packet::owned(ethernet.payload().to_owned()) {
+                            //Some(mut ip_hdr) => {
+                            Some(ip_hdr) => {
+                                let dst = ip_hdr.get_destination();
+
+                                println!("recv data - dst: {}", dst);
+
+                                if dst == lb.listen_ip {
+                                    match MutableUdpPacket::owned(ip_hdr.payload().to_owned()) {
+                                        //Some(mut udp_hdr) => {
+                                        Some(udp_hdr) => {
+                                            println!("{:?}", udp_hdr);
+                                            println!("{:?}", ip_hdr);
+                                        },
+                                        None => {}
+                                    }
+                                }
+                            },
+                            None => {}
+                        }
+                    },
+                    _ => {}
+                }
+            },
+            Err(_) => {},
+        }
+    }
 }
 
-pub fn find_interface(addr: Ipv4Addr) -> Option<NetworkInterface> {
+fn setup_interface_cfg() -> linux::Config {
+
+    let fanout = Some(FanoutOption {
+        group_id: rand::random::<u16>(),
+        fanout_type: FanoutType::LB,
+        defrag: true,
+        rollover: false,
+    });
+
+    linux::Config {
+        fanout,
+        ..Default::default()
+    }
+}
+
+
+fn find_interface(addr: Ipv4Addr) -> Option<NetworkInterface> {
 
     let ifaces = linux::interfaces();
     for iface in ifaces {
