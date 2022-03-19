@@ -1,3 +1,4 @@
+#![feature(maybe_uninit_uninit_array, maybe_uninit_slice)]
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::collections::HashMap;
@@ -16,10 +17,10 @@ use pnet::packet::udp::MutableUdpPacket;
 use pnet::transport::transport_channel;
 use pnet::transport::TransportChannelType::Layer3;
 
-//use pnet::packet::ethernet::MutableEthernetPacket;
-//use pnet::util::MacAddr;
+use pnet::packet::ethernet::MutableEthernetPacket;
+use pnet::util::MacAddr;
 
-
+pub const ETHER_SIZE: usize = 42;
 
 #[derive(Clone)]
 pub struct LB {
@@ -134,30 +135,45 @@ fn run_server(lb: &mut LB) {
     let proto = Layer3(IpNextHeaderProtocols::Udp);
     let (mut ipv4_tx, _) = transport_channel(4096, proto).unwrap();
 
+    /*
     let d_addr: Ipv4Addr = "127.0.0.2".parse()
         .expect("failed to parse addr");
+    */
+
+    let d_mac: MacAddr = "ff:ff:ff:ff:ff:ff".parse()
+        .expect("failed to parse mac-address");
 
     loop {
+
         match iface_rx.next() {
             Ok(frame) => {
-                let ethernet = EthernetPacket::new(frame).unwrap();
 
-                match ethernet.get_ethertype() {
+                let recv_eth = EthernetPacket::new(frame).unwrap();
+
+                let mut send_pkt:[u8; ETHER_SIZE] = [0u8; ETHER_SIZE];
+                let mut send_eth = MutableEthernetPacket::new(&mut send_pkt).unwrap();
+                send_eth.set_ethertype(recv_eth.get_ethertype());
+                send_eth.set_source(recv_eth.get_source());
+                send_eth.set_destination(d_mac);
+
+                match recv_eth.get_ethertype() {
                     EtherTypes::Ipv4 => {
-                        match MutableIpv4Packet::owned(ethernet.payload().to_owned()) {
-                            Some(mut ip_hdr) => {
+                        match MutableIpv4Packet::owned(send_eth.payload().to_owned()) {
+                            //Some(mut ip_hdr) => {
+                            Some(ip_hdr) => {
+
                                 let dst = ip_hdr.get_destination();
 
                                 println!("recv data - dst: {}", dst);
 
                                 if dst == lb.listen_ip {
                                     match MutableUdpPacket::owned(ip_hdr.payload().to_owned()) {
-                                        Some(udp_hdr) => {
+                                        Some(mut udp_hdr) => {
                                             println!("ip_header: {:?}, udp_header: {:?}", ip_hdr, udp_hdr);
 
                                             //ether.set_destination(dmac);
-                                            ip_hdr.set_destination(d_addr);
-                                            //udp_hdr.set_destination(5555);
+                                            //ip_hdr.set_destination(d_addr);
+                                            udp_hdr.set_destination(5555);
 
                                             println!("ip_header: {:?}, udp_header: {:?}", ip_hdr, udp_hdr);
 
