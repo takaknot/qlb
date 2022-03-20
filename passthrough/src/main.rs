@@ -1,7 +1,7 @@
 #![feature(maybe_uninit_uninit_array, maybe_uninit_slice)]
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::collections::HashMap;
+//use std::collections::HashMap;
 use std::str::FromStr;
 
 use pnet::datalink::{linux, NetworkInterface};
@@ -9,9 +9,11 @@ use pnet::datalink::Channel::Ethernet;
 use pnet::datalink::{FanoutOption, FanoutType};
 
 use pnet::packet::Packet;
+use pnet::packet::udp;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::MutableIpv4Packet;
+use pnet::packet::ipv4;
 use pnet::packet::udp::MutableUdpPacket;
 
 use pnet::transport::transport_channel;
@@ -20,7 +22,7 @@ use pnet::transport::TransportChannelType::Layer3;
 use pnet::packet::ethernet::MutableEthernetPacket;
 use pnet::util::MacAddr;
 
-pub const ETHER_SIZE: usize = 42;
+pub const ETHER_SIZE: usize = 128; //42;
 
 #[derive(Clone)]
 pub struct LB {
@@ -33,17 +35,19 @@ impl LB {
 
     pub fn new() -> Option<LB> {
 
-        let mut backend_servers = HashMap::new();
-
-        let listen_addr: SocketAddr = FromStr::from_str("127.0.0.1:4433")
+        let listen_addr: SocketAddr = FromStr::from_str("172.16.0.1:4433")
             .ok()
             .expect("Failed to parse listen host:port string");
 
-        let addr1: SocketAddr = FromStr::from_str("127.0.0.2:4003")
+        /*
+        let mut backend_servers = HashMap::new();
+
+        let addr1: SocketAddr = FromStr::from_str("10.25.96.4:4433")
             .ok()
             .expect("");
 
         backend_servers.insert(addr1, 100);
+        */
 
         match listen_addr.ip() {
             IpAddr::V4(ip4) => {
@@ -135,67 +139,83 @@ fn run_server(lb: &mut LB) {
     let proto = Layer3(IpNextHeaderProtocols::Udp);
     let (mut ipv4_tx, _) = transport_channel(4096, proto).unwrap();
 
-    /*
-    let d_addr: Ipv4Addr = "127.0.0.2".parse()
+    let d_addr: Ipv4Addr = "172.16.0.2".parse()
         .expect("failed to parse addr");
-    */
 
+    /*
     let d_mac: MacAddr = "ff:ff:ff:ff:ff:ff".parse()
         .expect("failed to parse mac-address");
 
-    loop {
+    let mut buf_eth:[u8; ETHER_SIZE] = [0u8; ETHER_SIZE];
+    */
 
+    loop {
         match iface_rx.next() {
             Ok(frame) => {
+                let recv_pkt = EthernetPacket::new(frame).unwrap();
 
-                let recv_eth = EthernetPacket::new(frame).unwrap();
-
-                let mut send_pkt:[u8; ETHER_SIZE] = [0u8; ETHER_SIZE];
-                let mut send_eth = MutableEthernetPacket::new(&mut send_pkt).unwrap();
-                send_eth.set_ethertype(recv_eth.get_ethertype());
-                send_eth.set_source(recv_eth.get_source());
-                send_eth.set_destination(d_mac);
-
-                match recv_eth.get_ethertype() {
+                match recv_pkt.get_ethertype() {
                     EtherTypes::Ipv4 => {
-                        match MutableIpv4Packet::owned(send_eth.payload().to_owned()) {
-                            //Some(mut ip_hdr) => {
-                            Some(ip_hdr) => {
 
-                                let dst = ip_hdr.get_destination();
+                        /*
+                        let mut send_pkt = MutableEthernetPacket::new(&mut buf_eth).unwrap();
+                        
+                        send_pkt.set_ethertype(recv_pkt.get_ethertype());
+                        send_pkt.set_source(recv_pkt.get_source());
+                        send_pkt.set_destination(d_mac);
+                        send_pkt.set_payload(recv_pkt.payload());
+                        
+                        println!("---- recv_pkt: {:?}", recv_pkt);
+                        println!("---- send_pkt: {:?}", send_pkt);
+                        */
 
-                                println!("recv data - dst: {}", dst);
+                        match MutableIpv4Packet::owned(recv_pkt.payload().to_owned()) {
+                            Some(mut ip_hdr) => {
 
-                                if dst == lb.listen_ip {
+                                if ip_hdr.get_destination() == lb.listen_ip {
+
+                                    ip_hdr.set_destination(d_addr);
+                                    ip_hdr.set_checksum(ipv4::checksum(&ip_hdr.to_immutable()));
+
                                     match MutableUdpPacket::owned(ip_hdr.payload().to_owned()) {
                                         Some(mut udp_hdr) => {
-                                            println!("ip_header: {:?}, udp_header: {:?}", ip_hdr, udp_hdr);
 
-                                            //ether.set_destination(dmac);
-                                            //ip_hdr.set_destination(d_addr);
-                                            udp_hdr.set_destination(5555);
+                                            println!("ether: {:?}", recv_pkt);
+                                            println!("ip: {:?}", ip_hdr);
+                                            println!("udp {:?}", udp_hdr);
 
-                                            println!("ip_header: {:?}, udp_header: {:?}", ip_hdr, udp_hdr);
+                                            udp_hdr.set_checksum(udp::ipv4_checksum(
+                                                    &udp_hdr.to_immutable(),
+                                                    &ip_hdr.get_source(),
+                                                    &ip_hdr.get_destination(),));
 
                                             match ipv4_tx.send_to(
-                                                ip_hdr.to_immutable(),
+                                                ip_hdr.to_immutable(), // udp_hdr.to_immutable(),
                                                 IpAddr::V4(ip_hdr.get_destination()),
-                                            ) {
-                                                Ok(_) => {},
+                                                ) {
+                                                Ok(_) => {
+                                                    println!("sent data {:?}", udp_hdr);
+                                                },
                                                 Err(e) => println!("{}", e),
                                             }
                                         },
-                                        None => {}
+                                        None => {
+                                            println!("-- failed to parse UDP Packet");
+                                        },
                                     }
                                 }
                             },
-                            None => {}
+                            None => {
+                                println!("failed to parse IPv4 Packet");
+                            },
                         }
                     },
                     _ => {}
                 }
             },
-            Err(_) => {},
+            Err(e) => {
+                println!("recv error: {:?}", e);
+            },
         }
     }
 }
@@ -222,6 +242,7 @@ fn find_interface(addr: Ipv4Addr) -> Option<NetworkInterface> {
     for iface in ifaces {
         for ip in iface.clone().ips {
             if ip.ip() == addr {
+                //println!("found iface {:?}", iface);
                 return Some(iface);
             }
         }
