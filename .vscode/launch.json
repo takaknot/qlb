@@ -1,0 +1,82 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'qlb'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=qlb",
+                    "--package=qlb"
+                ],
+                "filter": {
+                    "name": "qlb",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'qlb'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=qlb",
+                    "--package=qlb"
+                ],
+                "filter": {
+                    "name": "qlb",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'passthrough'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=passthrough",
+                    "--package=passthrough"
+                ],
+                "filter": {
+                    "name": "passthrough",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'passthrough'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=passthrough",
+                    "--package=passthrough"
+                ],
+                "filter": {
+                    "name": "passthrough",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
